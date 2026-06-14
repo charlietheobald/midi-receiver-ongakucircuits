@@ -6,9 +6,15 @@ int myFunction(int, int);
 
 int MIDI_IN_PIN = 2; // CHANGEME
 const int BAUD = 31250; // MIDI requires 31250 baud rate
-unsigned long samplingTime = 1000000/BAUD;
-std::vector<int> frame; // fixed size frame of 8 bits MSB0->LSB7
-std::vector<int> midiMessage;
+
+// should be 32us. The sample period of incoming data for correct framing
+const unsigned long samplingTime = 32;
+
+// should be 48us. This delay is triggered immediately when the start bit is pulled low
+// and is 1.5 times the sample period to centre all subsequent samples in the centre of each pulse
+const unsigned long centreSamplingDelay = 48;
+uint8_t frame; // fixed size frame of 8 bits MSB0->LSB7
+uint8_t midiMessage;
 
 enum framingState{
   IDLE, STARTREAD, STOPREAD
@@ -25,42 +31,61 @@ void setup() {
   int loopEndTime = 0;
 }
 
+// ISSUES:
+// Should use better loop interrupts and sample at the centre of each MIDI pulse (as per UART)
+// Now uses bitwise operators for greater efficiency
 void loop() {
-  // put your main code here, to run repeatedly:
-  unsigned long loopStartTime;
-  unsigned long loopEndTime;
-  // This whole loop needs to run every 1/31250 seconds. Check current time with millis
-  loopStartTime = micros();
-  if(samplingTime >= loopStartTime - loopEndTime){
-    int rx0 = digitalRead(MIDI_IN_PIN);
+  
+  unsigned long currentTime = micros();
+  static unsigned long nextSampleTime;
+  static int bitCount = 0;
+  char rx0 = 0;
 
-    if(rx0 == LOW && currentFramingState == IDLE){
-      nextFramingState = STARTREAD;
-      frame.clear();
-    }
-    else if((rx0 == HIGH && currentFramingState == STARTREAD) && frame.size() == 8){
-      nextFramingState = STOPREAD;
-      midiMessage = frame;
-    }
-    else if(currentFramingState == STOPREAD){
+  if(currentTime >= nextSampleTime){
+    rx0 = digitalRead(MIDI_IN_PIN);
+
+    switch(currentFramingState){
+      case IDLE:
+      if(rx0 == LOW){
+        nextFramingState = STARTREAD;
+        nextSampleTime = currentTime + centreSamplingDelay;
+        frame = 0;
+        bitCount = 0;
+      }
+      break;
+
+      case STARTREAD:
+      frame = frame << 1 | (rx0 & 1);
+      bitCount++;
+      if(bitCount >= 8){
+        nextFramingState = STOPREAD;
+      }
+      else{
+        nextFramingState = STARTREAD;
+      }
+      nextSampleTime = currentTime + samplingTime;
+      break;
+
+      case STOPREAD:
+      if(rx0 == HIGH){
+        midiMessage = frame;
+      }
       nextFramingState = IDLE;
-    }
-    else{
-      nextFramingState = currentFramingState;
-    }
+      nextSampleTime = currentTime;
+      break;
 
-
-    if(currentFramingState == STARTREAD){
-      frame.push_back(rx0);
+      
+      default: nextFramingState = currentFramingState;
+      break;
     }
+  
     currentFramingState = nextFramingState;
-    loopEndTime = micros();
   }
 }
 
 // put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+int reverseTransmittedBits(unsigned int &midiMessage){
+  
 }
 
 // Basic functionality - Take MIDI messages from the MIDI sockets and pass them through an optocoupler.
