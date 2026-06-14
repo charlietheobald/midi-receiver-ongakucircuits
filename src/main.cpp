@@ -1,8 +1,7 @@
 #include <Arduino.h>
-#include <vector>
 
 // put function declarations here:
-int myFunction(int, int);
+uint8_t reverseTransmittedBits(uint8_t);
 
 int MIDI_IN_PIN = 2; // CHANGEME
 const int BAUD = 31250; // MIDI requires 31250 baud rate
@@ -39,12 +38,34 @@ void loop() {
   unsigned long currentTime = micros();
   static unsigned long nextSampleTime;
   static int bitCount = 0;
-  char rx0 = 0;
+  int rx0 = 0;
 
   if(currentTime >= nextSampleTime){
     rx0 = digitalRead(MIDI_IN_PIN);
 
-    switch(currentFramingState){
+    uint8_t midiMessage_MSBfirst = readMIDIFrame(rx0, currentTime, nextSampleTime);
+  }
+}
+
+// MIDI bits are transmitted in order LSB -> MSB. We must reverse the bits of each MIDI message to get them in the correct format.
+uint8_t reverseTransmittedBits(uint8_t midiMessage){
+  uint8_t midiMessage_forward = 0;
+  for(int i = 0; i < 8; i++){
+    midiMessage_forward = midiMessage_forward << 1;
+    if(midiMessage & 1){
+      midiMessage_forward = midiMessage_forward | 1;
+    }
+    midiMessage = midiMessage >> 1;
+  }
+  return midiMessage_forward;
+}
+
+uint8_t readMIDIFrame(int rx0, unsigned long currentTime, unsigned long &nextSampleTime){
+
+  static int bitCount = 0;
+  uint8_t midiMessage_MSBfirst = 0;
+
+  switch(currentFramingState){
       case IDLE:
       if(rx0 == LOW){
         nextFramingState = STARTREAD;
@@ -67,11 +88,13 @@ void loop() {
       break;
 
       case STOPREAD:
-      if(rx0 == HIGH){
-        midiMessage = frame;
-      }
       nextFramingState = IDLE;
       nextSampleTime = currentTime;
+      if(rx0 == HIGH){
+        midiMessage = frame;
+        midiMessage_MSBfirst = reverseTransmittedBits(midiMessage);
+        return midiMessage_MSBfirst;
+      }
       break;
 
       
@@ -79,13 +102,9 @@ void loop() {
       break;
     }
   
-    currentFramingState = nextFramingState;
-  }
-}
-
-// put function definitions here:
-int reverseTransmittedBits(unsigned int &midiMessage){
+  currentFramingState = nextFramingState;
   
+  return 0; // gets to this point if no state has been returned?
 }
 
 // Basic functionality - Take MIDI messages from the MIDI sockets and pass them through an optocoupler.
