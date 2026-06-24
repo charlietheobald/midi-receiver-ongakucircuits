@@ -1,8 +1,5 @@
 #include <Arduino.h>
 
-// put function declarations here:
-uint8_t reverseTransmittedBits(uint8_t);
-
 int MIDI_IN_PIN = 2; // CHANGEME
 const int BAUD = 31250; // MIDI requires 31250 baud rate
 
@@ -20,32 +17,6 @@ enum framingState{
 };
 framingState currentFramingState = IDLE;
 framingState nextFramingState = currentFramingState;
-
-
-void setup() {
-  // put your setup code here, to run once:
-  pinMode(MIDI_IN_PIN, INPUT);
-  Serial.begin(BAUD);
-  int loopStartTime = 0;
-  int loopEndTime = 0;
-}
-
-// ISSUES:
-// Should use better loop interrupts and sample at the centre of each MIDI pulse (as per UART)
-// Now uses bitwise operators for greater efficiency
-void loop() {
-  
-  unsigned long currentTime = micros();
-  static unsigned long nextSampleTime;
-  static int bitCount = 0;
-  int rx0 = 0;
-
-  if(currentTime >= nextSampleTime){
-    rx0 = digitalRead(MIDI_IN_PIN);
-
-    uint8_t midiMessage_MSBfirst = readMIDIFrame(rx0, currentTime, nextSampleTime);
-  }
-}
 
 // MIDI bits are transmitted in order LSB -> MSB. We must reverse the bits of each MIDI message to get them in the correct format.
 uint8_t reverseTransmittedBits(uint8_t midiMessage){
@@ -106,6 +77,42 @@ uint8_t readMIDIFrame(int rx0, unsigned long currentTime, unsigned long &nextSam
   
   return 0; // gets to this point if no state has been returned?
 }
+
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(MIDI_IN_PIN, INPUT);
+  Serial.begin(BAUD);
+  int loopStartTime = 0;
+  int loopEndTime = 0;
+}
+
+// ISSUES:
+// Should use better loop interrupts and sample at the centre of each MIDI pulse (as per UART)
+// Now uses bitwise operators for greater efficiency
+void loop() {
+  
+  unsigned long currentTime = micros();
+  static unsigned long nextSampleTime;
+  static int bitCount = 0;
+  int rx0 = 0;
+
+  if(currentTime >= nextSampleTime){
+    rx0 = digitalRead(MIDI_IN_PIN);
+
+    uint8_t midiIn = readMIDIFrame(rx0, currentTime, nextSampleTime);
+    uint8_t midiIn_MSB = midiIn >> 7; // The MSB of the MIDI message (used to distinguish Status from Data)
+
+    // put MIDI message parsing here
+    // We need to:
+      // Separate status bits from data bits by looking at the first digit
+      // Identify whether Running Status is active
+      // Identify the key and velocity data that is being sent.
+      // In Running Status mode, a Note On with velocity of 0 is used to represent a Note Off event
+    
+  }
+}
+
 
 // Basic functionality - Take MIDI messages from the MIDI sockets and pass them through an optocoupler.
 // MIDI input comes from pins 4 and 5. 
