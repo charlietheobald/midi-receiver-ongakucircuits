@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-int MIDI_IN_PIN = 2; // CHANGEME
+int MIDI_IN_PIN = 4; // CHANGEME
 const int BAUD = 31250; // MIDI requires 31250 baud rate
 
 // should be 32us. The sample period of incoming data for correct framing
@@ -64,6 +64,8 @@ uint8_t readMIDIFrame(int rx0, unsigned long currentTime, unsigned long &nextSam
       if(rx0 == HIGH){
         midiMessage = frame;
         midiMessage_MSBfirst = reverseTransmittedBits(midiMessage);
+        Serial.println((int)midiMessage_MSBfirst, HEX);
+        currentFramingState = nextFramingState;
         return midiMessage_MSBfirst;
       }
       break;
@@ -82,7 +84,7 @@ uint8_t readMIDIFrame(int rx0, unsigned long currentTime, unsigned long &nextSam
 void setup() {
   // put your setup code here, to run once:
   pinMode(MIDI_IN_PIN, INPUT);
-  Serial.begin(BAUD);
+  Serial.begin(115200);
   int loopStartTime = 0;
   int loopEndTime = 0;
 }
