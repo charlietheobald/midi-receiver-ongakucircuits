@@ -1,137 +1,187 @@
+// To fix:
+// Running Status needs to be implemented separately for every MIDI channel
+
 #include <Arduino.h>
 
-int MIDI_IN_PIN = 4; // CHANGEME
-const int BAUD = 31250; // MIDI requires 31250 baud rate
+#define MIDI_IN_PIN 4
 
-// should be 32us. The sample period of incoming data for correct framing
-const unsigned long samplingTime = 32;
-
-// should be 48us. This delay is triggered immediately when the start bit is pulled low
-// and is 1.5 times the sample period to centre all subsequent samples in the centre of each pulse
-const unsigned long centreSamplingDelay = 48;
-uint8_t frame; // fixed size frame of 8 bits MSB0->LSB7
-uint8_t midiMessage;
-
-enum framingState{
-  IDLE, STARTREAD, STOPREAD
+struct midiEvent{
+  uint8_t status1;
+  uint8_t param1;
+  uint8_t param2;
 };
-framingState currentFramingState = IDLE;
-framingState nextFramingState = currentFramingState;
 
-// MIDI bits are transmitted in order LSB -> MSB. We must reverse the bits of each MIDI message to get them in the correct format.
-uint8_t reverseTransmittedBits(uint8_t midiMessage){
-  uint8_t midiMessage_forward = 0;
-  for(int i = 0; i < 8; i++){
-    midiMessage_forward = midiMessage_forward << 1;
-    if(midiMessage & 1){
-      midiMessage_forward = midiMessage_forward | 1;
-    }
-    midiMessage = midiMessage >> 1;
-  }
-  return midiMessage_forward;
-}
+// MIDI MESSAGE RESPONSE STATE TRANSITIONS
 
-uint8_t readMIDIFrame(int rx0, unsigned long currentTime, unsigned long &nextSampleTime){
+// nb it might be better to put everything into a single enum that way we have just one status to detect
+// type1 for two-parameter messages
+// in either Normal or Running Status mode
+// Example commands are Note On / Note Off / Polyphonic Key Pressure / Control Change / Channel Mode
 
-  static int bitCount = 0;
-  uint8_t midiMessage_MSBfirst = 0;
+// type2 for one-parameter messages
+// in either Normal or Running Status mode
+// Example commands are Program Change / Channel Pressure
 
-  switch(currentFramingState){
-      case IDLE:
-      if(rx0 == LOW){
-        nextFramingState = STARTREAD;
-        nextSampleTime = currentTime + centreSamplingDelay;
-        frame = 0;
-        bitCount = 0;
-      }
-      break;
 
-      case STARTREAD:
-      frame = frame << 1 | (rx0 & 1);
-      bitCount++;
-      if(bitCount >= 8){
-        nextFramingState = STOPREAD;
-      }
-      else{
-        nextFramingState = STARTREAD;
-      }
-      nextSampleTime = currentTime + samplingTime;
-      break;
+// type3 for messages without parameters
+// irrelevant of Normal or Running Status
+// Example commands are Tune Request / Timing Clock / Active Sensing / Reset
 
-      case STOPREAD:
-      nextFramingState = IDLE;
-      nextSampleTime = currentTime;
-      if(rx0 == HIGH){
-        midiMessage = frame;
-        midiMessage_MSBfirst = reverseTransmittedBits(midiMessage);
-        Serial.println((int)midiMessage_MSBfirst, HEX);
-        currentFramingState = nextFramingState;
-        return midiMessage_MSBfirst;
-      }
-      break;
+enum midiReceiverState{
+  MIDI_STATUS, CHANNEL, VELOCITY, PARAMETER, RUNNINGSTATUSCHECK
+};
 
-      
-      default: nextFramingState = currentFramingState;
-      break;
-    }
-  
-  currentFramingState = nextFramingState;
-  
-  return 0; // gets to this point if no state has been returned?
-}
+int messageType;
+uint8_t lastStatus;
+
+
 
 
 void setup() {
-  // put your setup code here, to run once:
-  pinMode(MIDI_IN_PIN, INPUT);
   Serial.begin(115200);
-  int loopStartTime = 0;
-  int loopEndTime = 0;
+  Serial1.begin(31250, SERIAL_8N1, MIDI_IN_PIN, -1, true); 
+  delay(100);
+  while (Serial1.available()) Serial1.read();
+
+  Serial.println("Ready"); 
 }
 
-// ISSUES:
-// Should use better loop interrupts and sample at the centre of each MIDI pulse (as per UART)
-// Now uses bitwise operators for greater efficiency
+
+
 void loop() {
-  
-  unsigned long currentTime = micros();
-  static unsigned long nextSampleTime;
-  static int bitCount = 0;
-  int rx0 = 0;
-
-  if(currentTime >= nextSampleTime){
-    rx0 = digitalRead(MIDI_IN_PIN);
-
-    uint8_t midiIn = readMIDIFrame(rx0, currentTime, nextSampleTime);
-    uint8_t midiIn_MSB = midiIn >> 7; // The MSB of the MIDI message (used to distinguish Status from Data)
-
-    // put MIDI message parsing here
-    // We need to:
-      // Separate status bits from data bits by looking at the first digit
-      // Identify whether Running Status is active
-      // Identify the key and velocity data that is being sent.
-      // In Running Status mode, a Note On with velocity of 0 is used to represent a Note Off event
+  // Use a while loop to instantly empty the hardware buffer without delays
+  while (Serial1.available() > 0) {
+    uint8_t midiData = Serial1.read();
     
+    static midiReceiverState currentState;
+    static midiReceiverState nextState;
+    static midiEvent midievent;
+
+    // Print a leading zero for single-digit hex values (e.g., 02 instead of 2)
+    if (midiData < 0x10){
+      Serial.print("0");
+    }
+    Serial.print(midiData, HEX);
+    Serial.print(" ");
+
+
+    uint8_t midiData_top4 = midiData >> 4; // the top 4 bits of midiData, representing the status message
+    uint8_t midiData_bottom4 = midiData & (0x0F); // the bottom 4 bits of midiData, representing the MIDI chnannel
+    bool realTime = false; // realTime init to false. Used to allow running status to continue even with a "1" as MSB in a Real-Time Message
+
+    if(midiData >> 7 == 1 && currentState != RUNNINGSTATUSCHECK){
+      currentState = MIDI_STATUS;
+    }
+    // else we are receiving data of the same type as before
+
+    switch(currentState){
+      case(MIDI_STATUS):
+        // If we're in one of the STATUS states
+        // Record the event type in latestStatus
+        // nextState always a channel (type1) or a parameter (type2) or another status (type3)
+        switch(midiData_top4){
+          case(0x9): // Note On
+            messageType = 1;
+            nextState = CHANNEL;
+            break;
+          case(0x8): // Note Off
+            messageType = 1;
+            nextState = CHANNEL;
+            break;
+          case(0xA): // Polyphonic Key Pressure
+            messageType = 1;
+            nextState = CHANNEL;
+            break;
+          case(0xB): // Control Change / Channel Mode depending on the channel bits
+            messageType = 1;
+            nextState = CHANNEL;
+            break;
+          case(0xE): // Pitch Bend Change
+            messageType = 1;
+            nextState = CHANNEL;
+            break;
+      
+
+          case(0xC): // Program Change
+            messageType = 2;
+            nextState = PARAMETER;
+            break;
+          case(0xD): // Channel Pressure
+            messageType = 2;
+            nextState = PARAMETER;
+            break;
+
+          case(0xF):
+            // This is the bunch of weird type3 messages
+            switch(midiData_bottom4){
+              // System Common Messages - ignored for now
+
+              // Real-Time Messages
+              case(0x8): // Timing Clock
+                break;
+              case(0x9): // Undefined
+                break;
+              case(0xA): // Start
+                break;
+              case(0xB): // Continue
+                break;
+              case(0xC): // Stop
+                break;
+              case(0xD): // Undefined
+                break;
+              case(0xE): // Active Sensing (connection alive every 300ms)
+                break;
+              case(0xF): // Reset
+                break;
+            }
+            realTime = true;
+            messageType = 3;
+            nextState = MIDI_STATUS;
+          
+        }
+        lastStatus = midiData;
+        break;
+      case(CHANNEL):
+        nextState = VELOCITY;
+        break;
+      case(VELOCITY):
+        nextState = RUNNINGSTATUSCHECK;
+        break;
+      case(PARAMETER):
+        nextState = RUNNINGSTATUSCHECK;
+        break;
+      case(RUNNINGSTATUSCHECK):
+
+        // if a 1 is detected we are not in Running Status
+        // FIX: Real-Time Messages should not affect Running Status.
+        if(midiData >> 7 == 1 && !realTime){
+          nextState = MIDI_STATUS;
+        }
+
+        // Running Status triggered
+        else{
+          if(messageType == 1){
+            nextState = CHANNEL;
+          }
+          else if(messageType == 2){
+            nextState = PARAMETER;
+          }
+          else if(messageType == 3){
+            nextState = MIDI_STATUS;
+          }
+        break;
+      }
+    }
+
+
+
+    // Other logic
+
+    // FIX: additional logic required to regroup Running Status with data bytes
+    currentState = nextState;
+    midievent.status1 = lastStatus;
+    //midievent.param1 = channel;
+    //midievent.param2 = velocity;
   }
 }
-
-
-// Basic functionality - Take MIDI messages from the MIDI sockets and pass them through an optocoupler.
-// MIDI input comes from pins 4 and 5. 
-
-/*
-HOW ARE MIDI NOTE ON / OFF EVENTS DEFINED?
-8-bit messages.
-Start bit 0, end bit 1
-STATUS bytes always start with 1
-DATA bytes always start with 0
-Channel mode messages
-
-
-
-
-
-
-
-*/
 
