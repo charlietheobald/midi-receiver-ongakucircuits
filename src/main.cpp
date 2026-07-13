@@ -1,4 +1,3 @@
-
 #include <Arduino.h>
 #include <MIDI.h>
 #include <deque>
@@ -7,7 +6,7 @@
 
 // Replace with hardware serial if possible
 // SoftwareSerial midiSerial(4, 3); // RX = pin 4, TX = pin 3
-#define MIDI_IN_PIN = 4;
+const int MIDI_IN_PIN = 4;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI);
 
 struct Voice{
@@ -153,134 +152,17 @@ void handleNoteOff(byte channel, byte pitch, byte velocity){
     // Look for switched off note's pitch in the running voices
     int iSwitchedOffVoice = findVoicefromPitch(pitch);
     // Mark note as free in the array and remove from deque if present
-    voices[iSwitchedOffVoice].free = true;
-    // Find the DEQUE index of the note to be removed
+    if(iSwitchedOffVoice != -1){
+        voices[iSwitchedOffVoice].free = true;
+        // Find the DEQUE index of the note to be removed
 
-    int iSwitchedOffVoiceIndex_deque = iFindIndexInDeque(pitch);
-    dqiNotePriority.erase(dqiNotePriority.begin() + iSwitchedOffVoiceIndex_deque);
-}
-/*
-uint16_t uCreateNoteBuffer(std::deque<std::string> const &dqsNoteFIFO){
-    uint16_t outputNoteBuffer = 0;
-    for(int i = 0; i < dqsNoteFIFO.size(); i++){
-        if(dqsNoteFIFO[i] == "C"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 11);
-        }
-        else if(dqsNoteFIFO[i] == "C#"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 10);
-        }
-        else if(dqsNoteFIFO[i] == "D"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 9);
-        }
-        else if(dqsNoteFIFO[i] == "D#"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 8);
-        }
-        else if(dqsNoteFIFO[i] == "E"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 7);
-        }
-        else if(dqsNoteFIFO[i] == "F"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 6);
-        }
-        else if(dqsNoteFIFO[i] == "F#"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 5);
-        }
-        else if(dqsNoteFIFO[i] == "G"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 4);
-        }
-        else if(dqsNoteFIFO[i] == "G#"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 3);
-        }
-        else if(dqsNoteFIFO[i] == "A"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 2);
-        }
-        else if(dqsNoteFIFO[i] == "A#"){
-            outputNoteBuffer = outputNoteBuffer | (1 << 1);
-        }
-        else if(dqsNoteFIFO[i] == "B"){
-            outputNoteBuffer = outputNoteBuffer | 1;
-        }
-        else{
-            outputNoteBuffer = 0;
-            Serial.print("WARNING Buffer contains at least one malformed or undefined pitch");
-        }
-    }
-    return outputNoteBuffer;
-}
-
-
-// We need to have three separate deques:
-// dqiMIDINoteFIFO is needed to find unique MIDI notes in the input array
-// which cannot be implemented with either of the two FIFOs as they are octave and pitch blind respectively
-std::deque<int> dqiMIDINoteFIFO;
-std::deque<std::string> dqsNoteFIFO;
-std::deque<uint16_t> dqiOctaveFIFO;
-
-void handleNoteOn(byte channel, byte pitch, byte velocity) {
-    // If there are less than 6 notes in the buffer: add to the buffer
-    if(dqiMIDINoteFIFO.size() < iPOLYPHONY_BUFFER_SIZE){
-        dqiMIDINoteFIFO.push_back(pitch);
-        dqsNoteFIFO.push_back(psiMIDINotetoSPN(pitch).first);
-        dqiOctaveFIFO.push_back(psiMIDINotetoSPN(pitch).second);
-    }
-    // If the buffer is full: dynamically remove notes from it
-    // and re-add new ones if they are being played
-    else if(dqiMIDINoteFIFO.size() >= iPOLYPHONY_BUFFER_SIZE){
-        Serial.println("Polyphony limit reached");
-        dqiMIDINoteFIFO.pop_front();
-        dqiMIDINoteFIFO.push_back(pitch);
-
-        dqsNoteFIFO.pop_front();
-        dqsNoteFIFO.push_back(psiMIDINotetoSPN(pitch).first);
-
-        // Prevent clicking:
-        // Need a new data structure (maybe an array?)
-        // Memory: dqsPreviousNoteFIFO, dqsCurrentNoteFIFO
-        // Any elements that are the same in Previous and Current
-        // Should not have their position changed in the output array
-
-        // Implementation: Sort all elements in alphabetical order
-        // 
-
-        // Or the "free voices" idea?
-
-
-        dqiOctaveFIFO.pop_front();
-        dqiOctaveFIFO.push_back(psiMIDINotetoSPN(pitch).second);
-    }
-
-    uint16_t noteBuffer = uCreateNoteBuffer(dqsNoteFIFO);
-
-    Serial.print("Note On  | Channel: ");
-    Serial.print(channel);
-    Serial.print(" | Pitch: ");
-    Serial.print(pitch);
-    Serial.print(" | Velocity: ");
-    Serial.println(velocity);
-}
-
-void handleNoteOff(byte channel, byte pitch, byte velocity){
-
-    // Remove the note with Note Off detected from all the buffers
-    // Notes dynamically removed from the polyphony buffer as it becomes full will not reach this point
-    int iIndexInBuffer = iFindIndexInDeque(pitch, dqiMIDINoteFIFO);
-    if(iIndexInBuffer != -1){
-        dqiMIDINoteFIFO.erase(dqiMIDINoteFIFO.begin() + iIndexInBuffer);
-        dqsNoteFIFO.erase(dqsNoteFIFO.begin() + iIndexInBuffer);
-        dqiOctaveFIFO.erase(dqsNoteFIFO.begin() + iIndexInBuffer);
+        int iSwitchedOffVoiceIndex_deque = iFindIndexInDeque(pitch);
+        dqiNotePriority.erase(dqiNotePriority.begin() + iSwitchedOffVoiceIndex_deque);
     }
     else{
-        Serial.println("An attempt was made to turn off a note that was automatically removed by the polyphony FIFO. Safely continuing...");
+        Serial.println("Tried to turn off a note that was force-removed by the polyphony limit, or never played");
     }
-
-    uint16_t noteBuffer = uCreateNoteBuffer(dqsNoteFIFO);
-    Serial.print("Note Off | Channel: ");
-    Serial.print(channel);
-    Serial.print(" | Pitch: ");
-    Serial.print(pitch);
-    Serial.print(" | Velocity: ");
-    Serial.println(velocity);
 }
-*/
 
 void setup() {
     Serial.begin(115200);
