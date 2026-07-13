@@ -15,9 +15,9 @@ struct Voice{
     bool free = true;
 };
 
-const int iPOLYPHONY_BUFFER_SIZE = 6;
+const int iPOLYPHONY_BUFFER_SIZE = 8;
 
-Voice voices[iPOLYPHONY_BUFFER_SIZE]; // creates a fixed-length array of length iPOLYPHONY_BUFFER_SIZE
+Voice voices[iPOLYPHONY_BUFFER_SIZE]; // creates a Wfixed-length array of length iPOLYPHONY_BUFFER_SIZE
 std::deque<int> dqiNotePriority;
 
 std::pair<std::string, int> psiMIDINotetoSPN(const int MIDInote){
@@ -166,10 +166,6 @@ void handleNoteOff(byte channel, byte pitch, byte velocity){
 
 void setup() {
     Serial.begin(115200);
-    Serial1.begin(31250, SERIAL_8N1, MIDI_IN_PIN, -1, false);
-    while(Serial1.available()){
-        Serial1.read();
-    }
     delay(500);
     Serial.println("MIDI Receiver Initializing...");
 
@@ -177,6 +173,11 @@ void setup() {
     MIDI.turnThruOff();
     MIDI.setHandleNoteOn(handleNoteOn);
     MIDI.setHandleNoteOff(handleNoteOff);
+
+    Serial1.begin(31250, SERIAL_8N1, MIDI_IN_PIN, -1, false);
+    while(Serial1.available()){
+        Serial1.read();
+    }
 
     Serial.println("MIDI Receiver Ready!");
 }
